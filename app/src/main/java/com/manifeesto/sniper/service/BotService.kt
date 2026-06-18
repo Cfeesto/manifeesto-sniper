@@ -22,8 +22,8 @@ class BotService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
 
     private val scanner = AirdropScanner()
-    private val farmer = TestnetFarmer()
-    private val withdrawExecutor = WithdrawExecutor()
+    private lateinit var farmer: TestnetFarmer
+    private lateinit var withdrawExecutor: WithdrawExecutor
 
     companion object {
         const val NOTIFICATION_ID = 1001
@@ -33,6 +33,8 @@ class BotService : Service() {
     }
 
     override fun onCreate() {
+        farmer = TestnetFarmer(this)
+        withdrawExecutor = WithdrawExecutor(this)
         super.onCreate()
         acquireWakeLock()
     }

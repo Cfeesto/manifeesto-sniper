@@ -20,11 +20,12 @@ data class ClaimableAirdrop(
     val network: Network,
     val contractAddress: String,
     val tokenSymbol: String,
-    val amount: String, // 原始数量字符串
-    val valueUsd: Double
+    val amount: String,      // raw token amount as decimal string
+    val valueUsd: Double,
+    val claimIndex: Long = 0 // Merkle distributor index
 )
 
-enum class Network(val chainId: Int, val rpcUrl: String, val explorerUrl: String) {
+enum class Network(val chainId: Long, val rpcUrl: String, val explorerUrl: String) {
     BSC(56, "https://bsc-dataseed1.binance.org/", "https://bscscan.com"),
     BSC_TESTNET(97, "https://data-seed-prebsc-1-s1.binance.org:8545/", "https://testnet.bscscan.com"),
     TRON(728126428, "https://api.trongrid.io", "https://tronscan.org"),

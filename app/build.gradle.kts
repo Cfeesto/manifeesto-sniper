@@ -37,6 +37,20 @@ android {
     buildFeatures {
         viewBinding = true
     }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DISCLAIMER",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/*.kotlin_module",
+                "META-INF/versions/**"
+            )
+        }
+    }
 }
 
 dependencies {
@@ -63,4 +77,7 @@ dependencies {
 
     // DataStore — persistent settings
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
+    // web3j Android — EVM tx signing, ABI encoding, keccak256, secp256k1
+    implementation("org.web3j:core:4.9.8-android")
 }

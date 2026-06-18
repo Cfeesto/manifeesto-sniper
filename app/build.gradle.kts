@@ -78,6 +78,7 @@ dependencies {
     // DataStore — persistent settings
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
-    // web3j Android — EVM tx signing, ABI encoding, keccak256, secp256k1
-    implementation("org.web3j:core:4.9.8-android")
+    // web3j crypto — EVM tx signing, keccak256, secp256k1 (Android-compatible build)
+    implementation("org.web3j:crypto:4.12.3-android")
+    implementation("org.web3j:utils:4.12.3-android")
 }

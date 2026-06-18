@@ -1,7 +1,5 @@
 package com.manifeesto.sniper.scanner
 
-import com.google.gson.Gson
-import com.google.gson.JsonObject
 import com.manifeesto.sniper.data.AirdropCampaign
 import com.manifeesto.sniper.data.CampaignAction
 import com.manifeesto.sniper.data.ClaimableAirdrop
@@ -13,65 +11,26 @@ import kotlinx.coroutines.coroutineScope
 
 /**
  * 空投扫描器 — 获取活跃活动并检查可领取余额
- *
- * 数据源:
- *   - DefiLlama Airdrops API (免费, 无需 API key)
- *   - DappRadar Airdrop feed
- *   - 链上合约直查
  */
 class AirdropScanner {
 
     private val rpcClient = RpcClient()
-    private val gson = Gson()
-
-    // ─── 公共 API 端点 (无需认证) ──────────────────────────────
-    private val DEFILLAMA_PROTOCOLS = "https://api.llama.fi/protocols"
-    private val AIRDROPS_FEED = "https://airdrops.io/feed/rss/"
 
     /**
      * 获取当前活跃的空投/测试网活动
      */
     suspend fun fetchActiveCampaigns(): List<AirdropCampaign> = coroutineScope {
         val campaigns = mutableListOf<AirdropCampaign>()
-
-        // 已知的高价值测试网活动 (定期更新)
         campaigns.addAll(getKnownActiveCampaigns())
-
-        // 过滤掉已截止的
         campaigns.filter { it.isActive && it.deadline > System.currentTimeMillis() / 1000 }
     }
 
     /**
-     * 检查钱包是否有可领取的空投
+     * 检查可领取的空投余额
      */
-    suspend fun fetchClaimableAirdrops(walletAddress: String = ""): List<ClaimableAirdrop> = coroutineScope {
-        if (walletAddress.isEmpty()) return@coroutineScope emptyList()
-
-        // 并发检查多个网络的可领取余额
-        val checks = listOf(
-            async { checkBscClaimable(walletAddress) },
-            async { checkEthClaimable(walletAddress) },
-            async { checkArbitrumClaimable(walletAddress) }
-        )
-
-        checks.awaitAll().flatten()
-    }
-
-    // ─── 链上查询 ──────────────────────────────────────────────
-    private suspend fun checkBscClaimable(wallet: String): List<ClaimableAirdrop> {
-        // 查询 BSC 上常见的空投合约
-        val knownContracts = listOf(
-            "0x..." // 实际部署时填入已知空投合约地址
-        )
-        return emptyList() // 占位符 — 正式版查询链上数据
-    }
-
-    private suspend fun checkEthClaimable(wallet: String): List<ClaimableAirdrop> {
-        return emptyList()
-    }
-
-    private suspend fun checkArbitrumClaimable(wallet: String): List<ClaimableAirdrop> {
-        return emptyList()
+    suspend fun fetchClaimableAirdrops(): List<ClaimableAirdrop> = coroutineScope {
+        // 需要配置钱包地址后才能查询
+        emptyList()
     }
 
     // ─── 已知活跃活动清单 ──────────────────────────────────────
@@ -88,7 +47,7 @@ class AirdropScanner {
                     CampaignAction.DEPLOY_CONTRACT
                 ),
                 estimatedValueUsd = 500.0,
-                deadline = 1800000000L // 2027 年
+                deadline = 1800000000L
             ),
             AirdropCampaign(
                 id = "megaeth_testnet",

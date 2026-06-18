@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="8dp"
+    android:background="#1A1A1A">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="EVM Wallet Address (0x...)"
+        android:textColor="#AAAAAA"
+        android:textSize="12sp"
+        android:layout_marginBottom="4dp" />
+
+    <EditText
+        android:id="@+id/et_wallet_address"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="0xYourWalletAddress"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#555555"
+        android:background="#2A2A2A"
+        android:padding="10dp"
+        android:inputType="text"
+        android:singleLine="true"
+        android:fontFamily="monospace"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Private Key (hex, no 0x prefix)"
+        android:textColor="#AAAAAA"
+        android:textSize="12sp"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="4dp" />
+
+    <EditText
+        android:id="@+id/et_private_key"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Your private key"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#555555"
+        android:background="#2A2A2A"
+        android:padding="10dp"
+        android:inputType="textPassword"
+        android:singleLine="true"
+        android:fontFamily="monospace"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Withdraw-to Address (optional, defaults to wallet)"
+        android:textColor="#AAAAAA"
+        android:textSize="12sp"
+        android:layout_marginTop="12dp"
+        android:layout_marginBottom="4dp" />
+
+    <EditText
+        android:id="@+id/et_withdraw_address"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="0xWithdrawAddress (leave blank = same wallet)"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#555555"
+        android:background="#2A2A2A"
+        android:padding="10dp"
+        android:inputType="text"
+        android:singleLine="true"
+        android:fontFamily="monospace"
+        android:textSize="13sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Private key is stored locally on device only."
+        android:textColor="#FF8800"
+        android:textSize="11sp"
+        android:layout_marginTop="12dp" />
+
+</LinearLayout>

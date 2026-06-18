@@ -15,7 +15,6 @@ import kotlinx.coroutines.*
 
 /**
  * 24/7 前台服务 — 核心 bot 运行环境
- * 保持扫描、农耕、自动提现循环持续运行
  */
 class BotService : Service() {
 
@@ -28,6 +27,8 @@ class BotService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
+        const val ACTION_STATUS_UPDATE = "com.manifeesto.sniper.STATUS_UPDATE"
+        const val EXTRA_STATUS_MSG = "status_msg"
         var isRunning = false
     }
 
@@ -39,8 +40,8 @@ class BotService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification("Bot active — scanning..."))
         isRunning = true
+        broadcast("Bot service started. Scanning every 5 minutes.")
         startBotLoop()
-        // 若服务被杀死，系统自动重启
         return START_STICKY
     }
 
@@ -51,61 +52,74 @@ class BotService : Service() {
         isRunning = false
         scope.cancel()
         wakeLock?.release()
+        broadcast("Bot service stopped.")
     }
 
-    // ─── 主循环 ───────────────────────────────────────────────
     private fun startBotLoop() {
         scope.launch {
             while (isActive) {
                 try {
                     runCycle()
                 } catch (e: Exception) {
-                    updateNotification("Error: ${e.message?.take(60)}")
+                    val msg = "Error: ${e.message?.take(80)}"
+                    updateNotification(msg)
+                    broadcast(msg)
                 }
-                // 每 5 分钟扫描一次，避免过热
                 delay(5 * 60 * 1000L)
             }
         }
     }
 
     private suspend fun runCycle() {
+        broadcast("Scanning airdrop campaigns...")
         updateNotification("Scanning airdrop campaigns...")
 
-        // 1. 扫描新空投活动
         val campaigns = scanner.fetchActiveCampaigns()
-        updateNotification("Found ${campaigns.size} active campaigns")
+        broadcast("Found ${campaigns.size} active campaigns: ${campaigns.joinToString { it.name }}")
+        updateNotification("${campaigns.size} campaigns active")
 
-        // 2. 为每个活动执行链上操作
         campaigns.forEach { campaign ->
             try {
+                broadcast("Farming: ${campaign.name}...")
                 farmer.farm(campaign)
+                broadcast("Farming cycle done: ${campaign.name}")
             } catch (e: Exception) {
-                // 单个活动失败不影响其他活动
+                broadcast("Farm error (${campaign.name}): ${e.message?.take(60)}")
             }
         }
 
-        // 3. 检查可领取的空投并自动提现
         val claimable = scanner.fetchClaimableAirdrops()
         if (claimable.isNotEmpty()) {
+            broadcast("Claiming ${claimable.size} airdrops...")
             updateNotification("Claiming ${claimable.size} airdrops...")
             claimable.forEach { airdrop ->
                 withdrawExecutor.claimAndWithdraw(airdrop)
+                broadcast("Claimed: ${airdrop.tokenSymbol} on ${airdrop.network.name}")
             }
+        } else {
+            broadcast("No claimable airdrops yet.")
         }
 
-        updateNotification("Cycle complete. Next scan in 5 min.")
+        broadcast("Cycle complete. Next scan in 5 min.")
+        updateNotification("Idle — next scan in 5 min")
     }
 
-    // ─── 唤醒锁 — 防止 CPU 在扫描中休眠 ─────────────────────
     private fun acquireWakeLock() {
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "ManifeestoSniper::BotWakeLock"
-        ).apply { acquire(10 * 60 * 1000L) } // 最多持锁 10 分钟，循环续锁
+        ).apply { acquire(10 * 60 * 1000L) }
     }
 
-    // ─── 通知 ─────────────────────────────────────────────────
+    private fun broadcast(msg: String) {
+        val intent = Intent(ACTION_STATUS_UPDATE).apply {
+            putExtra(EXTRA_STATUS_MSG, msg)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+    }
+
     private fun buildNotification(text: String): Notification {
         val pendingIntent = PendingIntent.getActivity(
             this, 0,

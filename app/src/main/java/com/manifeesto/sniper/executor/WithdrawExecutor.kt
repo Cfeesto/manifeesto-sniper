@@ -51,7 +51,7 @@ class WithdrawExecutor(context: Context) {
         // 步骤2: 等待确认 (最多60秒)
         val confirmed = dexSwapper.waitForTx(airdrop.network.rpcUrl, claimHash, 60_000)
         if (!confirmed) {
-            return ClaimResult(false, airdrop.tokenSymbol, claimHash, error = "Claim not confirmed")
+            return ClaimResult(false, airdrop.tokenSymbol, txHash = claimHash, error = "Claim not confirmed")
         }
         Log.d(TAG, "Claim confirmed: $claimHash")
 

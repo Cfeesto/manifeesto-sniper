@@ -61,6 +61,15 @@ class MainActivity : AppCompatActivity() {
         updateStatus()
         updateWalletDisplay()
 
+        // 显示上次崩溃日志(如果有)
+        val crashFile = java.io.File(filesDir, "crash_log.txt")
+        if (crashFile.exists()) {
+            val log = crashFile.readText().take(300)
+            appendLog("Last crash: $log")
+            crashFile.delete()
+        }
+
+
         if (!walletManager.isConfigured()) {
             appendLog("Wallet not configured. Please set up your wallet first.")
             showWalletDialog()

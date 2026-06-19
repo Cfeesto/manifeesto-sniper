@@ -47,9 +47,19 @@ android {
                 "META-INF/NOTICE",
                 "META-INF/NOTICE.txt",
                 "META-INF/*.kotlin_module",
-                "META-INF/versions/**"
+                "META-INF/versions/**",
+                // BouncyCastle conflict exclusions
+                "META-INF/INDEX.LIST",
+                "META-INF/io.netty.versions.properties",
+                "META-INF/BCKEY.DSA",
+                "META-INF/BCKEY.SF"
             )
         }
+    }
+
+    // Force the full BouncyCastle over Android's stripped-down version
+    configurations.all {
+        resolutionStrategy.force("org.bouncycastle:bcprov-jdk15on:1.70")
     }
 }
 
@@ -80,4 +90,8 @@ dependencies {
     // web3j crypto — EVM tx signing, keccak256, secp256k1 (Android-compatible build)
     implementation("org.web3j:crypto:4.12.3-android")
     implementation("org.web3j:utils:4.12.3-android")
+
+    // Full BouncyCastle — Android ships a stripped version missing CustomNamedCurves
+    // which web3j needs for secp256k1 signing. This bundles the complete BC library.
+    implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 }

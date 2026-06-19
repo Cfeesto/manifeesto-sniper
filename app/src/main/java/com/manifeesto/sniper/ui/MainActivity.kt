@@ -1,15 +1,19 @@
 package com.manifeesto.sniper.ui
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.manifeesto.sniper.databinding.ActivityMainBinding
 import com.manifeesto.sniper.databinding.DialogWalletSetupBinding
@@ -22,6 +26,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var walletManager: WalletManager
     private val logLines = mutableListOf<String>()
+
+    // 通知权限请求 launcher
+    private val notificationPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            doStartBot()
+        } else {
+            appendLog("Notification permission denied — bot may not run in background.")
+            doStartBot() // still try, some devices work without it
+        }
+    }
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -56,19 +72,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val filter = IntentFilter(BotService.ACTION_STATUS_UPDATE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(statusReceiver, filter)
-        }
+        try {
+            val filter = IntentFilter(BotService.ACTION_STATUS_UPDATE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                registerReceiver(statusReceiver, filter)
+            }
+        } catch (_: Exception) {}
         updateStatus()
     }
 
     override fun onPause() {
         super.onPause()
-        unregisterReceiver(statusReceiver)
+        try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
     }
 
     private fun onStartBot() {
@@ -77,25 +95,42 @@ class MainActivity : AppCompatActivity() {
             showWalletDialog()
             return
         }
-        startBot()
+        // 请求通知权限 (Android 13+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            }
+        }
+        doStartBot()
     }
 
-    private fun startBot() {
-        val intent = Intent(this, BotService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+    private fun doStartBot() {
+        try {
+            val intent = Intent(this, BotService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+            appendLog("Bot starting...")
+            updateStatus()
+        } catch (e: Exception) {
+            appendLog("Start error: ${e.message}")
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        appendLog("Bot starting...")
-        updateStatus()
     }
 
     private fun stopBot() {
-        val intent = Intent(this, BotService::class.java)
-        stopService(intent)
-        appendLog("Bot stopped.")
-        updateStatus()
+        try {
+            val intent = Intent(this, BotService::class.java)
+            stopService(intent)
+            appendLog("Bot stopped.")
+            updateStatus()
+        } catch (e: Exception) {
+            appendLog("Stop error: ${e.message}")
+        }
     }
 
     private fun showWalletDialog() {

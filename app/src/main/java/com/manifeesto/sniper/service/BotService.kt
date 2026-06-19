@@ -18,11 +18,6 @@ class BotService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var wakeLock: PowerManager.WakeLock? = null
 
-    private lateinit var scanner: AirdropScanner
-    private lateinit var farmer: TestnetFarmer
-    private lateinit var withdrawExecutor: WithdrawExecutor
-    private lateinit var opportunityHunter: OpportunityHunter
-
     companion object {
         const val NOTIFICATION_ID = 1001
         const val ACTION_STATUS_UPDATE = "com.manifeesto.sniper.STATUS_UPDATE"
@@ -30,30 +25,26 @@ class BotService : Service() {
         var isRunning = false
     }
 
-    override fun onCreate() {
-        super.onCreate()
-        try {
-            scanner = AirdropScanner()
-            farmer = TestnetFarmer(this)
-            withdrawExecutor = WithdrawExecutor(this)
-            opportunityHunter = OpportunityHunter()
-            acquireWakeLock()
-        } catch (e: Exception) {
-            broadcast("Init error: ${e.message}")
-        }
-    }
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
-            startForeground(NOTIFICATION_ID, buildNotification("Bot active — scanning internet..."))
-            isRunning = true
-            broadcast("Bot started. AI scanning every 5 minutes.")
-            startBotLoop()
-        } catch (e: Exception) {
-            broadcast("Start error: ${e.message}")
-            isRunning = false
-            stopSelf()
+        // startForeground MUST be called immediately — before any other work
+        startForeground(NOTIFICATION_ID, buildNotification("Bot starting..."))
+        isRunning = true
+
+        // All heavy work runs on background thread — never blocks main thread
+        scope.launch {
+            try {
+                acquireWakeLock()
+                broadcast("Bot started. Initializing...")
+                // Small delay to let UI settle before first scan
+                delay(2000)
+                runBotLoop()
+            } catch (e: Exception) {
+                broadcast("Fatal error: ${e.message}")
+                isRunning = false
+                stopSelf()
+            }
         }
+
         return START_STICKY
     }
 
@@ -67,70 +58,85 @@ class BotService : Service() {
         broadcast("Bot stopped.")
     }
 
-    private fun startBotLoop() {
-        scope.launch {
-            while (isActive) {
-                try { runCycle() } catch (e: Exception) {
-                    broadcast("Cycle error: ${e.message?.take(80)}")
-                }
-                delay(5 * 60 * 1000L)
+    private suspend fun runBotLoop() {
+        // Lazy init on background thread — avoids blocking main thread
+        val scanner = AirdropScanner()
+        val farmer = try { TestnetFarmer(applicationContext) } catch (e: Exception) {
+            broadcast("Farmer init error: ${e.message}"); null
+        }
+        val withdrawExecutor = try { WithdrawExecutor(applicationContext) } catch (e: Exception) {
+            broadcast("Withdraw init error: ${e.message}"); null
+        }
+        val opportunityHunter = OpportunityHunter()
+
+        while (scope.isActive) {
+            try {
+                runCycle(scanner, farmer, withdrawExecutor, opportunityHunter)
+            } catch (e: Exception) {
+                broadcast("Cycle error: ${e.message?.take(80)}")
             }
+            delay(5 * 60 * 1000L)
         }
     }
 
-    private suspend fun runCycle() {
-        // 1. AI 扫描互联网寻找机会
-        broadcast("AI scanning internet for free crypto opportunities...")
+    private suspend fun runCycle(
+        scanner: AirdropScanner,
+        farmer: TestnetFarmer?,
+        withdrawExecutor: WithdrawExecutor?,
+        opportunityHunter: OpportunityHunter
+    ) {
+        // 1. AI internet scan
+        broadcast("AI scanning internet for opportunities...")
         updateNotification("AI scanning...")
-        val opportunities = try {
-            opportunityHunter.scanAllSources()
-        } catch (e: Exception) { emptyList() }
-
+        val opportunities = try { opportunityHunter.scanAllSources() } catch (_: Exception) { emptyList() }
         if (opportunities.isNotEmpty()) {
             broadcast("Found ${opportunities.size} opportunities:")
-            opportunities.take(5).forEach { opp ->
-                broadcast("  [${opp.type}] ${opp.name} — est. \$${opp.estimatedValueUsd.toInt()}")
+            opportunities.take(3).forEach { opp ->
+                broadcast("  [${opp.type}] ${opp.name} ~\$${opp.estimatedValueUsd.toInt()}")
             }
         }
 
-        // 2. 扫描活跃空投活动
-        broadcast("Scanning airdrop campaigns...")
-        val campaigns = try { scanner.fetchActiveCampaigns() } catch (e: Exception) { emptyList() }
-        broadcast("Found ${campaigns.size} active campaigns")
+        // 2. Farm active campaigns
+        broadcast("Scanning campaigns...")
+        val campaigns = try { scanner.fetchActiveCampaigns() } catch (_: Exception) { emptyList() }
+        broadcast("${campaigns.size} active campaigns found")
 
-        // 3. 执行链上操作
-        campaigns.forEach { campaign ->
-            try {
-                broadcast("Farming: ${campaign.name}...")
-                farmer.farm(campaign)
-                broadcast("Farmed: ${campaign.name}")
-            } catch (e: Exception) {
-                broadcast("Farm error (${campaign.name}): ${e.message?.take(50)}")
-            }
-        }
-
-        // 4. 检查并领取可用空投
-        try {
-            val claimable = scanner.fetchClaimableAirdrops()
-            if (claimable.isNotEmpty()) {
-                broadcast("Claiming ${claimable.size} airdrops → sending to your wallet...")
-                claimable.forEach { airdrop ->
-                    try {
-                        withdrawExecutor.claimAndWithdraw(airdrop)
-                        broadcast("Claimed + sent: ${airdrop.tokenSymbol} to wallet")
-                    } catch (e: Exception) {
-                        broadcast("Claim error: ${e.message?.take(50)}")
-                    }
+        if (farmer != null) {
+            campaigns.forEach { campaign ->
+                try {
+                    broadcast("Farming ${campaign.name}...")
+                    farmer.farm(campaign)
+                    broadcast("Done: ${campaign.name}")
+                } catch (e: Exception) {
+                    broadcast("Farm error: ${e.message?.take(50)}")
                 }
-            } else {
-                broadcast("No claimable airdrops yet — keep farming.")
             }
-        } catch (e: Exception) {
-            broadcast("Check error: ${e.message}")
         }
 
-        broadcast("Cycle complete. Next scan in 5 min.")
-        updateNotification("Idle — next scan in 5 min")
+        // 3. Claim and withdraw
+        if (withdrawExecutor != null) {
+            try {
+                val claimable = scanner.fetchClaimableAirdrops()
+                if (claimable.isNotEmpty()) {
+                    broadcast("Claiming ${claimable.size} airdrops...")
+                    claimable.forEach { airdrop ->
+                        try {
+                            withdrawExecutor.claimAndWithdraw(airdrop)
+                            broadcast("Claimed: ${airdrop.tokenSymbol} → sent to wallet")
+                        } catch (e: Exception) {
+                            broadcast("Claim error: ${e.message?.take(50)}")
+                        }
+                    }
+                } else {
+                    broadcast("No claimable airdrops yet.")
+                }
+            } catch (e: Exception) {
+                broadcast("Withdraw check error: ${e.message?.take(50)}")
+            }
+        }
+
+        broadcast("Cycle done. Next scan in 5 min.")
+        updateNotification("Running — next scan in 5 min")
     }
 
     private fun acquireWakeLock() {
@@ -151,7 +157,9 @@ class BotService : Service() {
     }
 
     private fun buildNotification(text: String): Notification {
-        val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val pi = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, SniperApp.CHANNEL_ID)
             .setContentTitle("Manifeesto Sniper")
             .setContentText(text)
@@ -163,7 +171,8 @@ class BotService : Service() {
 
     private fun updateNotification(text: String) {
         try {
-            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, buildNotification(text))
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIFICATION_ID, buildNotification(text))
         } catch (_: Exception) {}
     }
 }

@@ -32,10 +32,10 @@ class OpportunityHunter {
     suspend fun scanAllSources(): List<Opportunity> = withContext(Dispatchers.IO) {
         val opportunities = mutableListOf<Opportunity>()
 
-        try { opportunities.addAll(scanDefiLlama()) } catch (_: Exception) {}
-        try { opportunities.addAll(scanOnChainAirdrops()) } catch (_: Exception) {}
-        try { opportunities.addAll(getKnownActiveFaucets()) } catch (_: Exception) {}
-        try { opportunities.addAll(scanTestnetCampaigns()) } catch (_: Exception) {}
+        try { opportunities.addAll(withContext(Dispatchers.IO) { scanDefiLlama() }) } catch (_: Exception) {}
+        try { opportunities.addAll(withContext(Dispatchers.IO) { scanOnChainAirdrops() }) } catch (_: Exception) {}
+        try { opportunities.addAll(withContext(Dispatchers.IO) { getKnownActiveFaucets() }) } catch (_: Exception) {}
+        try { opportunities.addAll(withContext(Dispatchers.IO) { scanTestnetCampaigns() }) } catch (_: Exception) {}
 
         // 按估计价值排序
         opportunities.sortByDescending { it.estimatedValueUsd }
@@ -43,7 +43,7 @@ class OpportunityHunter {
     }
 
     /** 扫描 DeFiLlama 空投数据 */
-    private fun scanDefiLlama(): List<Opportunity> {
+    private suspend fun scanDefiLlama(): List<Opportunity> {
         val response = rpcClient.get("https://defillama.com/airdrops") ?: return emptyList()
         // DeFiLlama 返回 HTML — 提取已知项目名称
         val opportunities = mutableListOf<Opportunity>()
@@ -63,7 +63,7 @@ class OpportunityHunter {
     }
 
     /** 扫描链上已部署的空投合约 */
-    private fun scanOnChainAirdrops(): List<Opportunity> {
+    private suspend fun scanOnChainAirdrops(): List<Opportunity> {
         // 已知活跃 Merkle 分发合约列表
         return listOf(
             Opportunity(
@@ -116,7 +116,7 @@ class OpportunityHunter {
     }
 
     /** 当前活跃免费水龙头 */
-    private fun getKnownActiveFaucets(): List<Opportunity> {
+    private suspend fun getKnownActiveFaucets(): List<Opportunity> {
         return listOf(
             Opportunity(
                 name = "Monad Faucet",
@@ -146,7 +146,7 @@ class OpportunityHunter {
     }
 
     /** 扫描当前测试网活动 */
-    private fun scanTestnetCampaigns(): List<Opportunity> {
+    private suspend fun scanTestnetCampaigns(): List<Opportunity> {
         // 检查 Galxe/Layer3 等任务平台的活跃活动
         val galxeData = rpcClient.get("https://galxe.com/api/campaigns?status=active") ?: ""
         val opportunities = mutableListOf<Opportunity>()

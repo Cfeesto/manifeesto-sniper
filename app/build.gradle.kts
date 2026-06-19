@@ -87,11 +87,8 @@ dependencies {
 
     // SharedPreferences used instead of DataStore to avoid main-thread deadlock
 
-    // web3j crypto — EVM tx signing, keccak256, secp256k1 (Android-compatible build)
-    implementation("org.web3j:crypto:4.12.3-android")
-    implementation("org.web3j:utils:4.12.3-android")
-
-    // Full BouncyCastle — Android ships a stripped version missing CustomNamedCurves
-    // which web3j needs for secp256k1 signing. This bundles the complete BC library.
+    // Full BouncyCastle — Android ships a stripped version missing CustomNamedCurves.
+    // All EVM signing (secp256k1 + keccak256 + RLP) is implemented directly via BC.
+    // web3j removed: its transitive modules (rlp, utils, abi) have no Android artifacts.
     implementation("org.bouncycastle:bcprov-jdk15on:1.70")
 }

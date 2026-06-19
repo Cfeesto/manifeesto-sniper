@@ -22,7 +22,7 @@ class SniperApp : Application() {
     override fun onCreate() {
         super.onCreate()
         // 注册完整 BouncyCastle — Android 自带的是阉割版，缺少 CustomNamedCurves
-        // web3j secp256k1 签名需要完整版本，必须在任何 web3j 调用之前注册
+        // secp256k1 签名需要完整版本，必须在任何签名调用之前注册
         installBouncyCastle()
         setupCrashHandler()
         createNotificationChannel()

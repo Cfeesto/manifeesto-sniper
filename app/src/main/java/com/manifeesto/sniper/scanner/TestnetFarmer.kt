@@ -6,7 +6,6 @@ import com.manifeesto.sniper.data.CampaignAction
 import com.manifeesto.sniper.util.RpcClient
 import com.manifeesto.sniper.util.TxSigner
 import com.manifeesto.sniper.util.WalletManager
-import org.web3j.utils.Numeric
 import java.math.BigInteger
 
 /**
@@ -183,8 +182,9 @@ class TestnetFarmer(context: Context) {
     // ─── 辅助函数 ──────────────────────────────────────────────
 
     private fun rpcGasPrice(rpc: String): BigInteger {
-        val hex = rpcClient.getGasPrice(rpc)
-        return Numeric.decodeQuantity(hex).max(BigInteger.valueOf(1_000_000_000L))
+        val hex = rpcClient.getGasPrice(rpc).removePrefix("0x").trimStart('0').ifEmpty { "0" }
+        val result = BigInteger(hex, 16)
+        return result.max(BigInteger.valueOf(1_000_000_000L))
     }
 
     private fun getWeth(chainId: Long) = when (chainId) {

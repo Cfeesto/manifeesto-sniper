@@ -75,8 +75,7 @@ dependencies {
     // Lifecycle service support
     implementation("androidx.lifecycle:lifecycle-service:2.7.0")
 
-    // DataStore — persistent settings
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
+    // SharedPreferences used instead of DataStore to avoid main-thread deadlock
 
     // web3j crypto — EVM tx signing, keccak256, secp256k1 (Android-compatible build)
     implementation("org.web3j:crypto:4.12.3-android")

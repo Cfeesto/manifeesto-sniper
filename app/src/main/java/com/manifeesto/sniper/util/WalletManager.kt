@@ -1,57 +1,53 @@
 package com.manifeesto.sniper.util
 
 import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import android.content.SharedPreferences
 import com.manifeesto.sniper.data.Network
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
-
-private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wallet_prefs")
 
 /**
- * 钱包管理器 — 使用 DataStore 持久化存储钱包地址和私钥
+ * 钱包管理器 — 使用 SharedPreferences 持久化存储钱包信息
+ * 注：runBlocking + DataStore 在主线程会死锁，改用 SharedPreferences 同步读取
  */
-class WalletManager(private val context: Context) {
+class WalletManager(context: Context) {
+
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences("wallet_prefs", Context.MODE_PRIVATE)
 
     companion object {
-        val KEY_WALLET_ADDRESS = stringPreferencesKey("wallet_address")
-        val KEY_PRIVATE_KEY = stringPreferencesKey("private_key")
-        val KEY_WITHDRAW_ADDRESS = stringPreferencesKey("withdraw_address")
+        private const val KEY_WALLET_ADDRESS = "wallet_address"
+        private const val KEY_PRIVATE_KEY = "private_key"
+        private const val KEY_WITHDRAW_ADDRESS = "withdraw_address"
     }
 
-    fun getWalletAddress(): String = runBlocking {
-        context.dataStore.data.first()[KEY_WALLET_ADDRESS] ?: ""
+    fun getWalletAddress(): String =
+        prefs.getString(KEY_WALLET_ADDRESS, "") ?: ""
+
+    fun getPrivateKey(): String =
+        prefs.getString(KEY_PRIVATE_KEY, "") ?: ""
+
+    fun getWithdrawAddress(): String {
+        val withdraw = prefs.getString(KEY_WITHDRAW_ADDRESS, "") ?: ""
+        return withdraw.ifEmpty { getWalletAddress() }
     }
 
-    fun getPrivateKey(): String = runBlocking {
-        context.dataStore.data.first()[KEY_PRIVATE_KEY] ?: ""
-    }
+    fun isConfigured(): Boolean =
+        getWalletAddress().isNotEmpty() && getPrivateKey().isNotEmpty()
 
-    fun getWithdrawAddress(): String = runBlocking {
-        val withdraw = context.dataStore.data.first()[KEY_WITHDRAW_ADDRESS] ?: ""
-        withdraw.ifEmpty { getWalletAddress() }
-    }
-
-    fun isConfigured(): Boolean = getWalletAddress().isNotEmpty() && getPrivateKey().isNotEmpty()
-
+    // suspend 保留以兼容调用方，实际写入是同步的
     suspend fun saveWallet(address: String, privateKey: String, withdrawAddress: String = "") {
-        context.dataStore.edit { prefs ->
-            prefs[KEY_WALLET_ADDRESS] = address.trim()
-            prefs[KEY_PRIVATE_KEY] = privateKey.trim()
-            prefs[KEY_WITHDRAW_ADDRESS] = withdrawAddress.trim().ifEmpty { address.trim() }
-        }
+        prefs.edit()
+            .putString(KEY_WALLET_ADDRESS, address.trim())
+            .putString(KEY_PRIVATE_KEY, privateKey.trim())
+            .putString(KEY_WITHDRAW_ADDRESS, withdrawAddress.trim().ifEmpty { address.trim() })
+            .apply()
     }
 
     suspend fun clearWallet() {
-        context.dataStore.edit { prefs ->
-            prefs.remove(KEY_WALLET_ADDRESS)
-            prefs.remove(KEY_PRIVATE_KEY)
-            prefs.remove(KEY_WITHDRAW_ADDRESS)
-        }
+        prefs.edit()
+            .remove(KEY_WALLET_ADDRESS)
+            .remove(KEY_PRIVATE_KEY)
+            .remove(KEY_WITHDRAW_ADDRESS)
+            .apply()
     }
 
     fun getWallet(network: Network): WalletInfo {

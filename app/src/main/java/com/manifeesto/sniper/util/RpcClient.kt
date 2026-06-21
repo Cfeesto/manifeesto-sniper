@@ -34,6 +34,13 @@ class RpcClient {
         val rpcErrorCode: Int = 0
     )
 
+    data class TxSendResult(
+        val txHash: String? = null,
+        val error: String = "",
+        val httpCode: Int = 0,
+        val rpcErrorCode: Int = 0
+    )
+
     /** 发送 JSON-RPC 请求 (带回退列表和详细错误) */
     fun call(rpcUrl: String, method: String, params: List<Any> = emptyList()): JsonObject? {
         return callWithFallback(listOf(rpcUrl), method, params).result
@@ -124,16 +131,21 @@ class RpcClient {
     }
 
     fun sendRawTransactionWithFallback(rpcUrls: List<String>, signedTx: String): String? {
+        return sendRawTransactionDetailed(rpcUrls, signedTx).txHash
+    }
+
+    /** 广播已签名交易并返回详细错误信息 */
+    fun sendRawTransactionDetailed(rpcUrls: List<String>, signedTx: String): TxSendResult {
         val result = callWithFallback(rpcUrls, "eth_sendRawTransaction", listOf(signedTx))
         if (!result.success) {
             Log.e(TAG, "TX broadcast FAILED: HTTP=${result.httpCode}, RPC=${result.rpcErrorCode}, error=${result.error}")
-            return null
+            return TxSendResult(error = result.error, httpCode = result.httpCode, rpcErrorCode = result.rpcErrorCode)
         }
         val txHash = result.result?.get("result")?.asString
         if (txHash != null) {
             Log.d(TAG, "TX broadcast OK: $txHash")
         }
-        return txHash
+        return TxSendResult(txHash = txHash, error = if (txHash == null) "No txHash in response" else "")
     }
 
     /** 获取当前 Gas 价格 (带回退) */

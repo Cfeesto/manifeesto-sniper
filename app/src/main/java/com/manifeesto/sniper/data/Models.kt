@@ -131,19 +131,28 @@ enum class Network(
         chainId = 10143,
         rpcUrl = "https://testnet-rpc.monad.xyz",
         explorerUrl = "https://testnet.monadexplorer.com",
-        nativeSymbol = "MON"
+        nativeSymbol = "MON",
+        dexRouter = "",
+        usdcAddress = "",
+        wethAddress = "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701"
     ),
     MEGAETH_TESTNET(
         chainId = 6342,
         rpcUrl = "https://carrot.megaeth.com/rpc",
         explorerUrl = "https://megaexplorer.xyz",
-        nativeSymbol = "ETH"
+        nativeSymbol = "ETH",
+        dexRouter = "",
+        usdcAddress = "",
+        wethAddress = ""
     ),
     BERACHAIN_TESTNET(
         chainId = 80085,
         rpcUrl = "https://artio.rpc.berachain.com",
         explorerUrl = "https://artio.beratrail.io",
-        nativeSymbol = "BERA"
+        nativeSymbol = "BERA",
+        dexRouter = "0x21e2C0AFd058A89FCf7caf3aEA3cB84Ae977B73D",
+        usdcAddress = "",
+        wethAddress = "0x5806E416dA447b267cEA759358cF22Cc41FAE80F"
     )
 }
 

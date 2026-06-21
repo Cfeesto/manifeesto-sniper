@@ -31,7 +31,8 @@ class TestnetFarmer(context: Context) {
         56L    to "0x10ED43C718714eb63d5aA57B78B54704E256024E",
         8453L  to "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
         42161L to "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
-        10L    to "0x9c12939390052919aF3155f41Bf4160Fd3666A6f"
+        10L    to "0x9c12939390052919aF3155f41Bf4160Fd3666A6f",
+        80085L to "0x21e2C0AFd058A89FCf7caf3aEA3cB84Ae977B73D"  // Berachain BEX Router
     )
 
     // Known bridge contracts per chain (for real bridge-like activity)
@@ -119,8 +120,11 @@ class TestnetFarmer(context: Context) {
 
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(250_000), router, value, data)
-        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
-            ?: return FarmResult(false, action = "swap", error = "Send tx failed")
+        val txResult = rpcClient.sendRawTransactionDetailed(rpcUrls, signed)
+        if (txResult.txHash == null) {
+            return FarmResult(false, action = "swap", error = "Send tx failed: ${txResult.error}")
+        }
+        val txHash = txResult.txHash
 
         val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
         return FarmResult(confirmed, txHash, "swap")
@@ -142,8 +146,11 @@ class TestnetFarmer(context: Context) {
         val bytecode = "0x00"
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(53_000), "", BigInteger.ZERO, bytecode)
-        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
-            ?: return FarmResult(false, action = "deploy", error = "Send tx failed")
+        val txResult = rpcClient.sendRawTransactionDetailed(rpcUrls, signed)
+        if (txResult.txHash == null) {
+            return FarmResult(false, action = "deploy", error = "Send tx failed: ${txResult.error}")
+        }
+        val txHash = txResult.txHash
 
         val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
         return FarmResult(confirmed, txHash, "deploy")
@@ -180,8 +187,11 @@ class TestnetFarmer(context: Context) {
 
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(120_000), bridgeContract, value, data)
-        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
-            ?: return FarmResult(false, action = "bridge", error = "Send tx failed")
+        val txResult = rpcClient.sendRawTransactionDetailed(rpcUrls, signed)
+        if (txResult.txHash == null) {
+            return FarmResult(false, action = "bridge", error = "Send tx failed: ${txResult.error}")
+        }
+        val txHash = txResult.txHash
 
         val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
         return FarmResult(confirmed, txHash, "bridge")
@@ -210,8 +220,11 @@ class TestnetFarmer(context: Context) {
 
             val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
                 BigInteger.valueOf(80_000), weth, value, data)
-            val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
-                ?: return FarmResult(false, action = "stake", error = "Send tx failed")
+            val txResult = rpcClient.sendRawTransactionDetailed(rpcUrls, signed)
+            if (txResult.txHash == null) {
+                return FarmResult(false, action = "stake", error = "Send tx failed: ${txResult.error}")
+            }
+            val txHash = txResult.txHash
 
             val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
             return FarmResult(confirmed, txHash, "stake")
@@ -241,8 +254,11 @@ class TestnetFarmer(context: Context) {
             // 发送 0 ETH + empty data → 触发 fallback() 留下链上交互记录
             val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
                 BigInteger.valueOf(30_000), govContract, BigInteger.ZERO, "0x")
-            val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
-                ?: return FarmResult(false, action = "vote", error = "Send tx failed")
+            val txResult = rpcClient.sendRawTransactionDetailed(rpcUrls, signed)
+            if (txResult.txHash == null) {
+                return FarmResult(false, action = "vote", error = "Send tx failed: ${txResult.error}")
+            }
+            val txHash = txResult.txHash
 
             val confirmed = waitForConfirmation(rpcUrls, txHash, 30_000)
             return FarmResult(confirmed, txHash, "vote")
@@ -268,8 +284,11 @@ class TestnetFarmer(context: Context) {
 
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(21_000), wallet.address, BigInteger.ZERO, "")
-        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
-            ?: return FarmResult(false, action = actionName, error = "Send tx failed")
+        val txResult = rpcClient.sendRawTransactionDetailed(rpcUrls, signed)
+        if (txResult.txHash == null) {
+            return FarmResult(false, action = actionName, error = "Send tx failed: ${txResult.error}")
+        }
+        val txHash = txResult.txHash
 
         val confirmed = waitForConfirmation(rpcUrls, txHash, 30_000)
         return FarmResult(confirmed, txHash, actionName)

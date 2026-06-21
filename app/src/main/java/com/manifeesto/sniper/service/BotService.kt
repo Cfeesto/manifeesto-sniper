@@ -142,13 +142,41 @@ class BotService : Service() {
             broadcast("Scan error: ${e.message?.take(50)}")
         }
 
-        // ── 阶段3: 测试网农耕 ─────────────────────────────────
+        // ── 阶段3: 检查各链余额 ─────────────────────────────────
         if (farmer != null && campaigns.isNotEmpty()) {
-            broadcast("Farming ${campaigns.size} campaigns...")
-            updateNotification("Farming ${campaigns.size} campaigns...")
+            broadcast("Checking on-chain balances for ${campaigns.size} campaigns...")
+            // 构建地址→链→余额的映射
+            val balancesByNetwork = mutableMapOf<com.manifeesto.sniper.data.Network, java.math.BigInteger>()
+            campaigns.map { it.network }.distinct().forEach { network ->
+                val bal = faucetClaimer.getNativeBalance(network.rpcUrl, walletAddress)
+                balancesByNetwork[network] = bal
+                broadcast("  ${network.name}: ${faucetClaimer.formatBalance(bal, network.nativeSymbol)}")
+            }
+            // 过滤出有余额的活动
+            val fundedCampaigns = campaigns.filter { campaign ->
+                val bal = balancesByNetwork[campaign.network] ?: java.math.BigInteger.ZERO
+                bal > java.math.BigInteger.ZERO
+            }
+            val unfundedCampaigns = campaigns.filter { campaign ->
+                val bal = balancesByNetwork[campaign.network] ?: java.math.BigInteger.ZERO
+                bal <= java.math.BigInteger.ZERO
+            }
+            if (unfundedCampaigns.isNotEmpty()) {
+                broadcast("SKIPPING ${unfundedCampaigns.size} unfunded campaign(s): ${unfundedCampaigns.joinToString(", ") { "${it.name}(${it.network.name})" }}")
+                broadcast("HINT: Visit each testnet faucet and request tokens manually for your wallet, then restart the bot.")
+            }
+            if (fundedCampaigns.isEmpty()) {
+                broadcast("No funded campaigns — all wallets are empty. Bot idle.")
+                updateNotification("No funded campaigns — visit faucets first")
+                return
+            }
+
+            // ── 阶段4: 测试网农耕 ─────────────────────────────────
+            broadcast("Farming ${fundedCampaigns.size} campaigns...")
+            updateNotification("Farming ${fundedCampaigns.size} campaigns...")
 
             // 随机打乱执行顺序(每轮不同), 避免固定模式
-            val shuffled = campaigns.shuffled()
+            val shuffled = fundedCampaigns.shuffled()
             // 随机跳过 0-1 个活动(模拟人类偶尔漏做)
             val toExecute = shuffled.drop(kotlin.random.Random.nextInt(0, 2))
 

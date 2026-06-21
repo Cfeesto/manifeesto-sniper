@@ -35,8 +35,9 @@ class BotService : Service() {
         const val EXTRA_STATUS_MSG = "status_msg"
         var isRunning = false
 
-        // 扫描间隔: 默认5分钟，可调整
-        const val CYCLE_INTERVAL_MS = 5 * 60 * 1000L
+        // 扫描间隔: 随机 3-12 分钟，避免机器人检测
+        const val CYCLE_INTERVAL_MIN_MS = 3 * 60 * 1000L
+        const val CYCLE_INTERVAL_MAX_MS = 12 * 60 * 1000L
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -97,7 +98,7 @@ class BotService : Service() {
             }
 
             val elapsed = System.currentTimeMillis() - cycleStart
-            val waitMs = max(CYCLE_INTERVAL_MS - elapsed, 10_000L)
+            val waitMs = max(kotlin.random.Random.nextLong(CYCLE_INTERVAL_MIN_MS, CYCLE_INTERVAL_MAX_MS) - elapsed, 10_000L)
             broadcast("Next scan in ${waitMs / 60000}m ${(waitMs % 60000) / 1000}s | Total USDC: ${"%.2f".format(totalUsdcEarned)}")
             updateNotification("Idle — earned \$${"%.2f".format(totalUsdcEarned)} USDC total")
             delay(waitMs)
@@ -116,15 +117,14 @@ class BotService : Service() {
     ) {
         val walletAddress = walletManager.getWalletAddress()
 
-        // ── 阶段1: 检查 gas 余额，按需补充 ──────────────────────
-        broadcast("Checking gas balances...")
+        // ── 阶段1: 扫描活动 → 检查 gas 余额，按需补充 ──────────
+        val campaigns = try { airdropScanner.fetchActiveCampaigns() } catch (_: Exception) { emptyList() }
+        broadcast("Checking gas balances across ${campaigns.size} campaign networks...")
         try {
-            val networksToCheck = listOf(
-                com.manifeesto.sniper.data.Network.ETH,
-                com.manifeesto.sniper.data.Network.BSC_TESTNET
-            )
-            val refilled = faucetClaimer.checkAndRefill(networksToCheck)
-            if (refilled.isNotEmpty()) broadcast("Gas refilled: ${refilled.joinToString()}")
+            val campaignNetworks = campaigns.map { it.network }.distinct()
+            val refilled = faucetClaimer.checkAndRefill(campaignNetworks)
+            if (refilled.isNotEmpty()) broadcast("Gas refilled: ${refilled.joinToString()} | Networks: ${campaignNetworks.joinToString { it.name }}")
+            else broadcast("Gas balances OK across all networks")
         } catch (_: Exception) {}
 
         // ── 阶段2: AI 机会扫描 ────────────────────────────────
@@ -143,20 +143,33 @@ class BotService : Service() {
         }
 
         // ── 阶段3: 测试网农耕 ─────────────────────────────────
-        if (farmer != null) {
-            val campaigns = try { airdropScanner.fetchActiveCampaigns() } catch (_: Exception) { emptyList() }
+        if (farmer != null && campaigns.isNotEmpty()) {
             broadcast("Farming ${campaigns.size} campaigns...")
             updateNotification("Farming ${campaigns.size} campaigns...")
 
-            campaigns.forEach { campaign ->
+            // 随机打乱执行顺序(每轮不同), 避免固定模式
+            val shuffled = campaigns.shuffled()
+            // 随机跳过 0-1 个活动(模拟人类偶尔漏做)
+            val toExecute = shuffled.drop(kotlin.random.Random.nextInt(0, 2))
+
+            toExecute.forEach { campaign ->
                 try {
-                    broadcast("Farming ${campaign.name}...")
+                    val explorerBase = campaign.explorerBaseUrl.ifEmpty { campaign.network.explorerUrl }
+                    broadcast("Farming ${campaign.name} on ${campaign.network.name}...")
                     val results = farmer.farm(campaign)
                     val ok = results.count { it.success }
                     val total = results.size
-                    broadcast("${campaign.name}: $ok/$total actions confirmed")
+                    broadcast("${campaign.name}: $ok/$total confirmed")
+
+                    // 为每笔成功交易输出区块浏览器链接
+                    results.filter { it.success && it.txHash.isNotEmpty() }.forEach { r ->
+                        broadcast("  ${r.action}: ${explorerBase}/tx/${r.txHash}")
+                    }
+                    results.filter { !it.success }.forEach { r ->
+                        broadcast("  ${r.action}: FAILED ${r.error}")
+                    }
                 } catch (e: Exception) {
-                    broadcast("Farm error ${campaign.name}: ${e.message?.take(40)}")
+                    broadcast("Farm error ${campaign.name}: ${e.message?.take(50)}")
                 }
             }
         }

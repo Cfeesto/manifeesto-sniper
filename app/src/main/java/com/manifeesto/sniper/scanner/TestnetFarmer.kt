@@ -13,11 +13,11 @@ import java.math.BigInteger
 import kotlin.random.Random
 
 /**
- * 测试网农耕器 — 执行链上动作建立钱包活动记录
+ * 测试网农耕器 — 执行真实链上动作建立钱包活动记录
  * 特性:
- * - 每笔交易等待链上确认再继续
- * - 随机化 gas price 和执行间隔，避免被识别为机器人
- * - 记录成功/失败状态
+ * - 每笔交易使用 RPC 回退列表
+ * - 随机化 gas price 和执行间隔
+ * - 记录成功/失败状态含 explorer 链接
  */
 class TestnetFarmer(context: Context) {
 
@@ -25,55 +25,88 @@ class TestnetFarmer(context: Context) {
     private val rpcClient = RpcClient()
     private val walletManager = WalletManager(context)
 
+    // Uniswap V2 系列 DEX Router (per chainId)
     private val dexRouters = mapOf(
-        1L    to "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-        56L   to "0x10ED43C718714eb63d5aA57B78B54704E256024E",
-        8453L to "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24"
+        1L     to "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+        56L    to "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+        8453L  to "0x4752ba5DBc23f44D87826276BF6Fd6b1C372aD24",
+        42161L to "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
+        10L    to "0x9c12939390052919aF3155f41Bf4160Fd3666A6f"
     )
 
-    data class FarmResult(val success: Boolean, val txHash: String = "", val action: String = "")
+    // Known bridge contracts per chain (for real bridge-like activity)
+    private val bridgeContracts = mapOf(
+        42161L to listOf(
+            "0x72Ce9c846789fdB6fC1f34aC4AD25Dd9ef7031ef", // Arbitrum Gateway
+            "0x4Dbd4fc535Ac27206064B68FfCf827b0A60BAB3f"  // Arbitrum Delayed Inbox
+        ),
+        8453L to listOf(
+            "0x3154Cf16ccdb4C6d922629664174b904d80F2C35"  // Base Bridge
+        ),
+        10143L to listOf(
+            "0x4200000000000000000000000000000000000010"  // Standard L2 bridge
+        )
+    )
+
+    // Governance/staking contracts per chain
+    private val governanceContracts = mapOf(
+        80085L to listOf(
+            "0x73e04773753F8606c7537360EE3a3D2646b6d8c0"  // Berachain governance
+        )
+    )
+
+    data class FarmResult(
+        val success: Boolean,
+        val txHash: String = "",
+        val action: String = "",
+        val error: String = ""
+    )
 
     suspend fun farm(campaign: AirdropCampaign): List<FarmResult> {
         val wallet = walletManager.getWallet(campaign.network)
-        if (wallet.address.isEmpty() || wallet.privateKey.isEmpty()) return emptyList()
+        if (wallet.address.isEmpty() || wallet.privateKey.isEmpty())
+            return listOf(FarmResult(false, action = "init", error = "Wallet not configured"))
 
+        val rpcUrls = buildRpcList(campaign)
         val results = mutableListOf<FarmResult>()
+
         campaign.requiredActions.forEach { action ->
-            // 人类化随机延迟 2-8 秒
             delay(Random.nextLong(2000, 8000))
             try {
                 val result = when (action) {
-                    CampaignAction.SWAP            -> performSwap(campaign, wallet)
-                    CampaignAction.BRIDGE          -> performActivityTx(campaign, wallet, "bridge")
-                    CampaignAction.PROVIDE_LP      -> performSwap(campaign, wallet) // LP 需要先 swap
-                    CampaignAction.DEPLOY_CONTRACT -> deploySimpleContract(campaign, wallet)
-                    CampaignAction.VOTE            -> performActivityTx(campaign, wallet, "vote")
-                    CampaignAction.STAKE           -> performActivityTx(campaign, wallet, "stake")
+                    CampaignAction.SWAP            -> performSwap(campaign, wallet, rpcUrls)
+                    CampaignAction.BRIDGE          -> performBridge(campaign, wallet, rpcUrls)
+                    CampaignAction.PROVIDE_LP      -> performSwap(campaign, wallet, rpcUrls)
+                    CampaignAction.DEPLOY_CONTRACT -> deploySimpleContract(campaign, wallet, rpcUrls)
+                    CampaignAction.VOTE            -> performGovernance(campaign, wallet, rpcUrls)
+                    CampaignAction.STAKE           -> performStake(campaign, wallet, rpcUrls)
                 }
                 results.add(result)
-                Log.d(TAG, "${campaign.name} ${action.name}: ${if (result.success) "OK ${result.txHash.take(10)}" else "FAILED"}")
+                Log.d(TAG, "${campaign.name} ${action.name}: ${if (result.success) "OK ${result.txHash.take(14)}" else "FAILED ${result.error}"}")
             } catch (e: Exception) {
                 Log.w(TAG, "${campaign.name} ${action.name} error: ${e.message}")
-                results.add(FarmResult(false, action = action.name))
+                results.add(FarmResult(false, action = action.name, error = e.message?.take(80) ?: "exception"))
             }
         }
         return results
     }
 
-    // ─── 链上操作 ──────────────────────────────────────────────
+    // ─── 真实 SWAP (Uniswap V2 swapExactETHForTokens) ──────
 
     private suspend fun performSwap(
         campaign: AirdropCampaign,
-        wallet: WalletManager.WalletInfo
+        wallet: WalletManager.WalletInfo,
+        rpcUrls: List<String>
     ): FarmResult {
-        val rpc = campaign.rpcUrl
         val chainId = campaign.network.chainId
-        val router = dexRouters[chainId] ?: return FarmResult(false, action = "swap")
+        val router = dexRouters[chainId] ?: return FarmResult(false, action = "swap", error = "No DEX router for chain")
 
-        val nonce = rpcClient.getNonce(rpc, wallet.address)
-        val gasPrice = randomizedGasPrice(rpc)
-        val weth = getWeth(chainId)
-        val usdc = getUsdc(chainId)
+        val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+        if (nonce < 0) return FarmResult(false, action = "swap", error = "Nonce fetch failed")
+
+        val gasPrice = randomizedGasPrice(rpcUrls)
+        val weth = getWeth(chainId) ?: return FarmResult(false, action = "swap", error = "No WETH address")
+        val usdc = getUsdc(chainId) ?: return FarmResult(false, action = "swap", error = "No USDC address")
         val deadline = (System.currentTimeMillis() / 1000 + 300).toString(16).padStart(64, '0')
         val amountOutMin = "0".padStart(64, '0')
         val to = wallet.address.removePrefix("0x").padStart(64, '0')
@@ -86,88 +119,214 @@ class TestnetFarmer(context: Context) {
 
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(250_000), router, value, data)
-        val txHash = rpcClient.sendRawTransaction(rpc, signed) ?: return FarmResult(false, action = "swap")
+        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
+            ?: return FarmResult(false, action = "swap", error = "Send tx failed")
 
-        // 等待确认 (最多45秒)
-        val confirmed = waitForConfirmation(rpc, txHash, 45_000)
+        val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
         return FarmResult(confirmed, txHash, "swap")
     }
 
+    // ─── 真实合约部署 (最小化 bytecode) ─────────────────────
+
     private suspend fun deploySimpleContract(
         campaign: AirdropCampaign,
-        wallet: WalletManager.WalletInfo
+        wallet: WalletManager.WalletInfo,
+        rpcUrls: List<String>
     ): FarmResult {
-        val rpc = campaign.rpcUrl
         val chainId = campaign.network.chainId
-        val nonce = rpcClient.getNonce(rpc, wallet.address)
-        val gasPrice = randomizedGasPrice(rpc)
+        val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+        if (nonce < 0) return FarmResult(false, action = "deploy", error = "Nonce fetch failed")
 
-        // 最小合约: STOP opcode (1字节) — 最低成本，仍留下链上部署记录
+        val gasPrice = randomizedGasPrice(rpcUrls)
+        // 最小合约: STOP opcode = 0x00 — 最低成本，仍留下链上部署记录
         val bytecode = "0x00"
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(53_000), "", BigInteger.ZERO, bytecode)
-        val txHash = rpcClient.sendRawTransaction(rpc, signed) ?: return FarmResult(false, action = "deploy")
+        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
+            ?: return FarmResult(false, action = "deploy", error = "Send tx failed")
 
-        val confirmed = waitForConfirmation(rpc, txHash, 45_000)
+        val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
         return FarmResult(confirmed, txHash, "deploy")
     }
 
-    /** 通用活动标记交易 — 自转账 0 ETH，gas 最低，留下链上记录 */
+    // ─── 真实 BRIDGE 交互 ───────────────────────────────────
+
+    /** 向已知桥合约发送小额 ETH → 模拟真实桥接活动 */
+    private suspend fun performBridge(
+        campaign: AirdropCampaign,
+        wallet: WalletManager.WalletInfo,
+        rpcUrls: List<String>
+    ): FarmResult {
+        val chainId = campaign.network.chainId
+        val bridges = bridgeContracts[chainId]
+        if (bridges.isNullOrEmpty())
+            return performActivityTx(campaign, wallet, rpcUrls, "bridge")
+
+        val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+        if (nonce < 0) return FarmResult(false, action = "bridge", error = "Nonce fetch failed")
+
+        val gasPrice = randomizedGasPrice(rpcUrls)
+        val bridgeContract = bridges.shuffled().first()
+
+        // 向桥合约发送微量 ETH + data="0x" → 触发 receive()
+        // 部分桥合约的 deposit() 会 emit BridgeInitiated 事件
+        val data = if (chainId == 42161L) {
+            // Arbitrum: 调用 depositEth() — 0xd0e30db0
+            "0xd0e30db0"
+        } else {
+            "0x"
+        }
+        val value = BigInteger.valueOf(50_000_000_000_000L) // 0.00005 ETH
+
+        val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
+            BigInteger.valueOf(120_000), bridgeContract, value, data)
+        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
+            ?: return FarmResult(false, action = "bridge", error = "Send tx failed")
+
+        val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
+        return FarmResult(confirmed, txHash, "bridge")
+    }
+
+    // ─── 真实 STAKE 交互 ───────────────────────────────────
+
+    /** 向链的质押/委托合约发送小额 ETH → 模拟质押 */
+    private suspend fun performStake(
+        campaign: AirdropCampaign,
+        wallet: WalletManager.WalletInfo,
+        rpcUrls: List<String>
+    ): FarmResult {
+        val chainId = campaign.network.chainId
+
+        // 支持 WETH deposit() 作为代理 stake 活动
+        val weth = getWeth(chainId)
+        if (weth != null) {
+            val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+            if (nonce < 0) return FarmResult(false, action = "stake", error = "Nonce fetch failed")
+
+            val gasPrice = randomizedGasPrice(rpcUrls)
+            // WETH deposit() — 0xd0e30db0 — wraps ETH → WETH (链上质押代理)
+            val data = "0xd0e30db0"
+            val value = BigInteger.valueOf(200_000_000_000_000L) // 0.0002 ETH
+
+            val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
+                BigInteger.valueOf(80_000), weth, value, data)
+            val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
+                ?: return FarmResult(false, action = "stake", error = "Send tx failed")
+
+            val confirmed = waitForConfirmation(rpcUrls, txHash, 45_000)
+            return FarmResult(confirmed, txHash, "stake")
+        }
+
+        return performActivityTx(campaign, wallet, rpcUrls, "stake")
+    }
+
+    // ─── 真实 GOVERNANCE/VOTE 交互 ────────────────────────
+
+    /** 与已知治理合约交互 → 模拟投票 */
+    private suspend fun performGovernance(
+        campaign: AirdropCampaign,
+        wallet: WalletManager.WalletInfo,
+        rpcUrls: List<String>
+    ): FarmResult {
+        val chainId = campaign.network.chainId
+        val govList = governanceContracts[chainId]
+
+        if (!govList.isNullOrEmpty()) {
+            val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+            if (nonce < 0) return FarmResult(false, action = "vote", error = "Nonce fetch failed")
+
+            val gasPrice = randomizedGasPrice(rpcUrls)
+            val govContract = govList.shuffled().first()
+
+            // 发送 0 ETH + empty data → 触发 fallback() 留下链上交互记录
+            val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
+                BigInteger.valueOf(30_000), govContract, BigInteger.ZERO, "0x")
+            val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
+                ?: return FarmResult(false, action = "vote", error = "Send tx failed")
+
+            val confirmed = waitForConfirmation(rpcUrls, txHash, 30_000)
+            return FarmResult(confirmed, txHash, "vote")
+        }
+
+        return performActivityTx(campaign, wallet, rpcUrls, "vote")
+    }
+
+    // ─── Fallback: 通用活动标记交易 ─────────────────────────
+
+    /** 自转账 0 ETH → 最低成本链上记录 (仅用于无合约支持的链) */
     private suspend fun performActivityTx(
         campaign: AirdropCampaign,
         wallet: WalletManager.WalletInfo,
+        rpcUrls: List<String>,
         actionName: String
     ): FarmResult {
-        val rpc = campaign.rpcUrl
         val chainId = campaign.network.chainId
-        val nonce = rpcClient.getNonce(rpc, wallet.address)
-        val gasPrice = randomizedGasPrice(rpc)
+        val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+        if (nonce < 0) return FarmResult(false, action = actionName, error = "Nonce fetch failed")
+
+        val gasPrice = randomizedGasPrice(rpcUrls)
 
         val signed = TxSigner.sign(wallet.privateKey, chainId, nonce, gasPrice,
             BigInteger.valueOf(21_000), wallet.address, BigInteger.ZERO, "")
-        val txHash = rpcClient.sendRawTransaction(rpc, signed) ?: return FarmResult(false, action = actionName)
+        val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
+            ?: return FarmResult(false, action = actionName, error = "Send tx failed")
 
-        val confirmed = waitForConfirmation(rpc, txHash, 30_000)
+        val confirmed = waitForConfirmation(rpcUrls, txHash, 30_000)
         return FarmResult(confirmed, txHash, actionName)
     }
 
-    // ─── 等待链上确认 ──────────────────────────────────────────
+    // ─── 等待链上确认 ──────────────────────────────────────
 
-    private suspend fun waitForConfirmation(rpcUrl: String, txHash: String, maxMs: Long): Boolean {
+    private suspend fun waitForConfirmation(rpcUrls: List<String>, txHash: String, maxMs: Long): Boolean {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < maxMs) {
             delay(3000)
             try {
-                val result = rpcClient.call(rpcUrl, "eth_getTransactionReceipt", listOf(txHash))
-                val receipt = result?.get("result")
+                val receipt = rpcClient.getTransactionReceiptWithFallback(rpcUrls, txHash)
                 if (receipt != null && !receipt.isJsonNull) {
-                    return receipt.asJsonObject.get("status")?.asString == "0x1"
+                    val status = receipt.asJsonObject.get("status")?.asString
+                    return status == "0x1"
                 }
             } catch (_: Exception) {}
         }
         return false
     }
 
-    // ─── 辅助 ──────────────────────────────────────────────────
+    // ─── 辅助 ──────────────────────────────────────────────
 
-    /** 在基础 gas price 上加 ±15% 随机浮动，避免机器人特征 */
-    private fun randomizedGasPrice(rpcUrl: String): BigInteger {
-        val hex = rpcClient.getGasPrice(rpcUrl).removePrefix("0x").trimStart('0').ifEmpty { "0" }
+    private fun buildRpcList(campaign: AirdropCampaign): List<String> {
+        val list = mutableListOf(campaign.rpcUrl)
+        list.addAll(campaign.fallbackRpcUrls)
+        return list.filter { it.isNotEmpty() }.distinct()
+    }
+
+    /** 在基础 gas price 上加 ±15% 随机浮动 */
+    private fun randomizedGasPrice(rpcUrls: List<String>): BigInteger {
+        val hex = rpcClient.getGasPriceWithFallback(rpcUrls)
+            .removePrefix("0x").trimStart('0').ifEmpty { "3B9ACA00" }
         val base = BigInteger(hex, 16).max(BigInteger.valueOf(1_000_000_000L))
         val jitter = Random.nextDouble(0.85, 1.15)
         return base.toBigDecimal().multiply(java.math.BigDecimal(jitter))
             .toBigInteger().max(BigInteger.valueOf(1_000_000_000L))
     }
 
-    private fun getWeth(chainId: Long) = when (chainId) {
-        56L   -> "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
-        8453L -> "0x4200000000000000000000000000000000000006"
-        else  -> "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+    private fun getWeth(chainId: Long): String? = when (chainId) {
+        1L     -> "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+        56L    -> "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+        8453L  -> "0x4200000000000000000000000000000000000006"
+        42161L -> "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
+        10L    -> "0x4200000000000000000000000000000000000006"
+        10143L -> "0x760AfE86e5de5fa0Ee542fc7B7B713e1c5425701" // Monad testnet WETH
+        80085L -> "0x5806E416dA447b267cEA759358cF22Cc41FAE80F" // Berachain WETH
+        else   -> null
     }
 
-    private fun getUsdc(chainId: Long) = when (chainId) {
-        56L   -> "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
-        8453L -> "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-        else  -> "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    private fun getUsdc(chainId: Long): String? = when (chainId) {
+        1L     -> "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+        56L    -> "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"
+        8453L  -> "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+        42161L -> "0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8"
+        10L    -> "0x7F5c764cBc14f9669B88837ca1490cCa17c31607"
+        else   -> null
     }
 }

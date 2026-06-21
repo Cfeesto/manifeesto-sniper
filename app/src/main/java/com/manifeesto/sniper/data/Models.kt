@@ -8,12 +8,15 @@ data class AirdropCampaign(
     val name: String,
     val network: Network,
     val rpcUrl: String,
+    val fallbackRpcUrls: List<String> = emptyList(),
     val requiredActions: List<CampaignAction>,
     val estimatedValueUsd: Double,
     val deadline: Long,         // Unix timestamp
     val isActive: Boolean = true,
     val contractAddress: String = "",   // 合约地址（如有）
-    val proofApiUrl: String = ""        // merkle proof API 端点
+    val proofApiUrl: String = "",       // merkle proof API 端点
+    val explorerBaseUrl: String = "",   // 区块浏览器基础 URL
+    val faucetUrl: String = ""          // 水龙头 URL
 )
 
 data class ClaimableAirdrop(
@@ -123,6 +126,24 @@ enum class Network(
         rpcUrl = "https://data-seed-prebsc-1-s1.binance.org:8545/",
         explorerUrl = "https://testnet.bscscan.com",
         nativeSymbol = "tBNB"
+    ),
+    MONAD_TESTNET(
+        chainId = 10143,
+        rpcUrl = "https://testnet-rpc.monad.xyz",
+        explorerUrl = "https://testnet.monadexplorer.com",
+        nativeSymbol = "MON"
+    ),
+    MEGAETH_TESTNET(
+        chainId = 6342,
+        rpcUrl = "https://carrot.megaeth.com/rpc",
+        explorerUrl = "https://megaexplorer.xyz",
+        nativeSymbol = "ETH"
+    ),
+    BERACHAIN_TESTNET(
+        chainId = 80085,
+        rpcUrl = "https://artio.rpc.berachain.com",
+        explorerUrl = "https://artio.beratrail.io",
+        nativeSymbol = "BERA"
     )
 }
 

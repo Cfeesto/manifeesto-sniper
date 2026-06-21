@@ -103,9 +103,9 @@ class WithdrawExecutor(context: Context) {
         airdrop: ClaimableAirdrop,
         wallet: WalletManager.WalletInfo
     ): String? {
-        val rpc = airdrop.network.rpcUrl
-        val nonce = rpcClient.getNonce(rpc, wallet.address)
-        val gasPrice = getGasPrice(rpc)
+        val rpcUrls = listOf(airdrop.network.rpcUrl)
+        val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+        val gasPrice = getGasPrice(rpcUrls)
 
         val data = if (airdrop.merkleProof.isNotEmpty()) {
             buildMerkleClaimData(airdrop, wallet.address)
@@ -123,7 +123,7 @@ class WithdrawExecutor(context: Context) {
             value = BigInteger.ZERO,
             data = data
         )
-        return rpcClient.sendRawTransaction(rpc, signed)
+        return rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
     }
 
     /**
@@ -169,14 +169,15 @@ class WithdrawExecutor(context: Context) {
         usdcAmount: Double
     ) {
         if (network.usdcAddress.isEmpty()) return
+        val rpcUrls = listOf(network.rpcUrl)
         try {
             val usdcBalance = dexSwapper.getErc20Balance(
                 network.usdcAddress, wallet.address, network.rpcUrl
             )
             if (usdcBalance <= BigInteger.ZERO) return
 
-            val nonce = rpcClient.getNonce(network.rpcUrl, wallet.address)
-            val gasPrice = getGasPrice(network.rpcUrl)
+            val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
+            val gasPrice = getGasPrice(rpcUrls)
 
             // ERC20 transfer(address to, uint256 amount) — 0xa9059cbb
             val toPadded = toAddress.removePrefix("0x").padStart(64, '0')
@@ -193,15 +194,16 @@ class WithdrawExecutor(context: Context) {
                 value = BigInteger.ZERO,
                 data = data
             )
-            val txHash = rpcClient.sendRawTransaction(network.rpcUrl, signed)
+            val txHash = rpcClient.sendRawTransactionWithFallback(rpcUrls, signed)
             Log.d(TAG, "USDC transferred to withdraw address: $txHash")
         } catch (e: Exception) {
             Log.w(TAG, "USDC transfer failed: ${e.message}")
         }
     }
 
-    private fun getGasPrice(rpcUrl: String): BigInteger {
-        val hex = rpcClient.getGasPrice(rpcUrl).removePrefix("0x").trimStart('0').ifEmpty { "0" }
+    private fun getGasPrice(rpcUrls: List<String>): BigInteger {
+        val hex = rpcClient.getGasPriceWithFallback(rpcUrls)
+            .removePrefix("0x").trimStart('0').ifEmpty { "0" }
         return BigInteger(hex, 16).max(BigInteger.valueOf(1_000_000_000L))
     }
 }

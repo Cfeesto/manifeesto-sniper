@@ -26,29 +26,48 @@ class AirdropScanner {
         AirdropCampaign(
             id = "monad_testnet",
             name = "Monad Testnet",
-            network = Network.ETH,
+            network = Network.MONAD_TESTNET,
             rpcUrl = "https://testnet-rpc.monad.xyz",
+            fallbackRpcUrls = listOf(
+                "https://rpc.testnet.monad.xyz",
+                "https://monad-testnet.drpc.org",
+                "https://testnet-rpc2.monad.xyz"
+            ),
             requiredActions = listOf(CampaignAction.SWAP, CampaignAction.DEPLOY_CONTRACT, CampaignAction.BRIDGE),
             estimatedValueUsd = 500.0,
-            deadline = 1900000000L
+            deadline = 1900000000L,
+            explorerBaseUrl = "https://testnet.monadexplorer.com",
+            faucetUrl = "https://testnet.monad.xyz/faucet"
         ),
         AirdropCampaign(
             id = "megaeth_testnet",
             name = "MegaETH Testnet",
-            network = Network.ETH,
-            rpcUrl = "https://rpc.megaeth.com",
+            network = Network.MEGAETH_TESTNET,
+            rpcUrl = "https://carrot.megaeth.com/rpc",
+            fallbackRpcUrls = listOf(
+                "https://rpc.megaeth.org",
+                "https://megaeth.drpc.org"
+            ),
             requiredActions = listOf(CampaignAction.SWAP, CampaignAction.PROVIDE_LP),
             estimatedValueUsd = 300.0,
-            deadline = 1900000000L
+            deadline = 1900000000L,
+            explorerBaseUrl = "https://megaexplorer.xyz",
+            faucetUrl = "https://faucet.megaeth.com"
         ),
         AirdropCampaign(
             id = "berachain",
             name = "Berachain Activity",
-            network = Network.ETH,
-            rpcUrl = "https://rpc.berachain.com",
+            network = Network.BERACHAIN_TESTNET,
+            rpcUrl = "https://artio.rpc.berachain.com",
+            fallbackRpcUrls = listOf(
+                "https://berachain-artio.drpc.org",
+                "https://rpc.berachain-apis.com"
+            ),
             requiredActions = listOf(CampaignAction.STAKE, CampaignAction.VOTE),
             estimatedValueUsd = 200.0,
-            deadline = 1900000000L
+            deadline = 1900000000L,
+            explorerBaseUrl = "https://artio.beratrail.io",
+            faucetUrl = "https://artio.faucet.berachain.com"
         ),
         AirdropCampaign(
             id = "base_activity",
@@ -57,7 +76,8 @@ class AirdropScanner {
             rpcUrl = Network.BASE.rpcUrl,
             requiredActions = listOf(CampaignAction.SWAP, CampaignAction.PROVIDE_LP),
             estimatedValueUsd = 150.0,
-            deadline = 1900000000L
+            deadline = 1900000000L,
+            explorerBaseUrl = "https://basescan.org"
         ),
         AirdropCampaign(
             id = "arbitrum_activity",
@@ -66,7 +86,8 @@ class AirdropScanner {
             rpcUrl = Network.ARBITRUM.rpcUrl,
             requiredActions = listOf(CampaignAction.SWAP, CampaignAction.BRIDGE),
             estimatedValueUsd = 100.0,
-            deadline = 1900000000L
+            deadline = 1900000000L,
+            explorerBaseUrl = "https://arbiscan.io"
         )
     )
 

@@ -1,0 +1,20 @@
+R_DEF: Internal format may change without notice
+local
+color ic_launcher_background
+drawable ic_launcher_foreground
+id btn_start_bot
+id btn_stop_bot
+id btn_wallet_setup
+id et_private_key
+id et_wallet_address
+id et_withdraw_address
+id scroll_logs
+id tv_logs
+id tv_status
+id tv_wallet_addr
+layout activity_main
+layout dialog_wallet_setup
+mipmap ic_launcher
+mipmap ic_launcher_round
+string app_name
+style Theme.ManifeestoSniper

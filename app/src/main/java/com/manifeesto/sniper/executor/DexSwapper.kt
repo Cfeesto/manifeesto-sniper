@@ -26,10 +26,6 @@ class DexSwapper(context: Context) {
 
     /**
      * 将指定代币全部兑换成 USDC
-     * @param tokenAddress  待兑换代币合约地址
-     * @param tokenSymbol   代币符号 (用于日志)
-     * @param rawAmount     兑换数量 (wei)
-     * @param network       目标链
      */
     suspend fun swapToUsdc(
         tokenAddress: String,
@@ -50,43 +46,30 @@ class DexSwapper(context: Context) {
         }
 
         try {
-            // 步骤1: 授权 DEX router 花费代币
             val approveHash = approveToken(
-                tokenAddress = tokenAddress,
-                spender = network.dexRouter,
-                amount = rawAmount,
-                network = network,
-                wallet = wallet
+                tokenAddress, network.dexRouter, rawAmount, network, wallet
             )
             if (approveHash != null) {
                 waitForTx(network.rpcUrl, approveHash, maxWaitMs = 30_000)
                 Log.d(TAG, "Approved $tokenSymbol for swap")
             }
 
-            // 步骤2: 执行兑换
             val swapHash = executeSwap(
-                tokenIn = tokenAddress,
-                tokenOut = network.usdcAddress,
-                amountIn = rawAmount,
-                network = network,
-                wallet = wallet
+                tokenAddress, network.usdcAddress, rawAmount, network, wallet
             ) ?: return@withContext SwapResult(false, error = "Swap tx failed")
 
-            // 步骤3: 等待兑换确认
             val confirmed = waitForTx(network.rpcUrl, swapHash, maxWaitMs = 60_000)
             if (!confirmed) {
                 return@withContext SwapResult(false, swapHash, error = "Swap tx not confirmed")
             }
 
-            // 步骤4: 查询收到的 USDC 金额
             val usdcBalance = getErc20Balance(network.usdcAddress, wallet.address, network.rpcUrl)
             val usdcAmount = usdcBalance.toBigDecimal()
                 .divide(java.math.BigDecimal.TEN.pow(6), 4, java.math.RoundingMode.HALF_UP)
                 .toDouble()
 
-            Log.d(TAG, "Swap done: $tokenSymbol → $usdcAmount USDC, tx=$swapHash")
+            Log.d(TAG, "Swap done: $tokenSymbol -> $usdcAmount USDC, tx=$swapHash")
             SwapResult(true, swapHash, usdcAmount)
-
         } catch (e: Exception) {
             Log.e(TAG, "Swap failed: ${e.message}")
             SwapResult(false, error = e.message ?: "Unknown error")
@@ -106,7 +89,6 @@ class DexSwapper(context: Context) {
         val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
         val gasPrice = getGasPrice(rpcUrls)
 
-        // approve(address spender, uint256 amount) — 0x095ea7b3
         val spenderPadded = spender.removePrefix("0x").padStart(64, '0')
         val amountHex = amount.toString(16).padStart(64, '0')
         val data = "0x095ea7b3$spenderPadded$amountHex"
@@ -114,14 +96,8 @@ class DexSwapper(context: Context) {
         return rpcClient.sendRawTransactionWithFallback(
             rpcUrls,
             TxSigner.sign(
-                privateKey = wallet.privateKey,
-                chainId = network.chainId,
-                nonce = nonce,
-                gasPrice = gasPrice,
-                gasLimit = BigInteger.valueOf(80_000),
-                to = tokenAddress,
-                value = BigInteger.ZERO,
-                data = data
+                wallet.privateKey, network.chainId, nonce, gasPrice,
+                BigInteger.valueOf(80_000), tokenAddress, BigInteger.ZERO, data
             )
         )
     }
@@ -139,19 +115,15 @@ class DexSwapper(context: Context) {
         val nonce = rpcClient.getNonceWithFallback(rpcUrls, wallet.address)
         val gasPrice = getGasPrice(rpcUrls)
         val deadline = (System.currentTimeMillis() / 1000 + 300).toString(16).padStart(64, '0')
-
-        // 最小输出 = 0 (接受任何滑点 — 测试网/小额)
         val amountOutMin = "0".padStart(64, '0')
         val amountInHex = amountIn.toString(16).padStart(64, '0')
         val to = wallet.address.removePrefix("0x").padStart(64, '0')
 
-        // path = [tokenIn, tokenOut] — 直接对
-        val pathOffset = "a0".padStart(64, '0')   // offset to path (5*32=160=0xa0)
+        val pathOffset = "a0".padStart(64, '0')
         val pathLen = "2".padStart(64, '0')
         val t0 = tokenIn.removePrefix("0x").padStart(64, '0')
         val t1 = tokenOut.removePrefix("0x").padStart(64, '0')
 
-        // swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline)
         val data = "0x38ed1739" +
                 amountInHex + amountOutMin + pathOffset + to + deadline +
                 pathLen + t0 + t1
@@ -159,24 +131,14 @@ class DexSwapper(context: Context) {
         return rpcClient.sendRawTransactionWithFallback(
             rpcUrls,
             TxSigner.sign(
-                privateKey = wallet.privateKey,
-                chainId = network.chainId,
-                nonce = nonce,
-                gasPrice = gasPrice,
-                gasLimit = BigInteger.valueOf(300_000),
-                to = network.dexRouter,
-                value = BigInteger.ZERO,
-                data = data
+                wallet.privateKey, network.chainId, nonce, gasPrice,
+                BigInteger.valueOf(300_000), network.dexRouter, BigInteger.ZERO, data
             )
         )
     }
 
     // ─── 等待交易确认 ──────────────────────────────────────────
 
-    /**
-     * 轮询 eth_getTransactionReceipt 直到确认或超时
-     * 返回 true = 成功上链
-     */
     suspend fun waitForTx(rpcUrl: String, txHash: String, maxWaitMs: Long = 60_000): Boolean {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < maxWaitMs) {
@@ -197,82 +159,6 @@ class DexSwapper(context: Context) {
     private fun getGasPrice(rpcUrls: List<String>): BigInteger {
         val hex = rpcClient.getGasPriceWithFallback(rpcUrls)
             .removePrefix("0x").trimStart('0').ifEmpty { "0" }
-        return BigInteger(hex, 16).max(BigInteger.valueOf(1_000_000_000L))
-    }
-
-    // ─── Uniswap V2 swapExactTokensForTokens ──────────────────
-
-    private suspend fun executeSwap(
-        tokenIn: String,
-        tokenOut: String,
-        amountIn: BigInteger,
-        network: Network,
-        wallet: WalletManager.WalletInfo
-    ): String? {
-        val nonce = rpcClient.getNonce(network.rpcUrl, wallet.address)
-        val gasPrice = getGasPrice(network.rpcUrl)
-        val deadline = (System.currentTimeMillis() / 1000 + 300).toString(16).padStart(64, '0')
-
-        // 最小输出 = 0 (接受任何滑点 — 测试网/小额)
-        val amountOutMin = "0".padStart(64, '0')
-        val amountInHex = amountIn.toString(16).padStart(64, '0')
-        val to = wallet.address.removePrefix("0x").padStart(64, '0')
-
-        // path = [tokenIn, tokenOut] — 直接对
-        val pathOffset = "a0".padStart(64, '0')   // offset to path (5*32=160=0xa0)
-        val pathLen = "2".padStart(64, '0')
-        val t0 = tokenIn.removePrefix("0x").padStart(64, '0')
-        val t1 = tokenOut.removePrefix("0x").padStart(64, '0')
-
-        // swapExactTokensForTokens(amountIn, amountOutMin, path, to, deadline)
-        val data = "0x38ed1739" +
-                amountInHex + amountOutMin + pathOffset + to + deadline +
-                pathLen + t0 + t1
-
-        return rpcClient.sendRawTransaction(
-            network.rpcUrl,
-            TxSigner.sign(
-                privateKey = wallet.privateKey,
-                chainId = network.chainId,
-                nonce = nonce,
-                gasPrice = gasPrice,
-                gasLimit = BigInteger.valueOf(300_000),
-                to = network.dexRouter,
-                value = BigInteger.ZERO,
-                data = data
-            )
-        )
-    }
-
-    // ─── 等待交易确认 ──────────────────────────────────────────
-
-    /**
-     * 轮询 eth_getTransactionReceipt 直到确认或超时
-     * 返回 true = 成功上链
-     */
-    suspend fun waitForTx(rpcUrl: String, txHash: String, maxWaitMs: Long = 60_000): Boolean {
-        val start = System.currentTimeMillis()
-        while (System.currentTimeMillis() - start < maxWaitMs) {
-            delay(3000)
-            try {
-                val receipt = rpcClient.getTransactionReceiptWithFallback(listOf(rpcUrl), txHash)
-                if (receipt != null && !receipt.isJsonNull) {
-                    val status = receipt.asJsonObject.get("status")?.asString ?: "0x1"
-                    return status == "0x1"
-                }
-            } catch (_: Exception) {}
-        }
-        return false
-    }
-            } catch (_: Exception) {}
-        }
-        return false
-    }
-
-    // ─── 辅助 ──────────────────────────────────────────────────
-
-    private fun getGasPrice(rpcUrl: String): BigInteger {
-        val hex = rpcClient.getGasPrice(rpcUrl).removePrefix("0x").trimStart('0').ifEmpty { "0" }
         return BigInteger(hex, 16).max(BigInteger.valueOf(1_000_000_000L))
     }
 

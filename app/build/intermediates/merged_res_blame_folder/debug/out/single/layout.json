@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "com.manifeesto.sniper.app-mergeDebugResources-38:/layout/dialog_wallet_setup.xml",
+        "source": "com.manifeesto.sniper.app-main-41:/layout/dialog_wallet_setup.xml"
+    },
+    {
+        "merged": "com.manifeesto.sniper.app-mergeDebugResources-38:/layout/activity_main.xml",
+        "source": "com.manifeesto.sniper.app-main-41:/layout/activity_main.xml"
+    }
+]
